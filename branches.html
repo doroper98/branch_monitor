@@ -462,12 +462,50 @@
     async function fetchJSON(url) {
       const res = await fetch(url, { headers: authHeaders() });
       if (!res.ok) {
-        if (res.status === 401 || res.status === 403 || res.status === 404) {
-          throw new Error(`${res.status} ${res.statusText} — 권한 또는 인증 문제. token 버튼으로 PAT 를 등록/갱신해 보세요.`);
+        let bodyMsg = '';
+        try { const j = await res.json(); bodyMsg = j.message || ''; } catch (e) {}
+        const remaining = res.headers.get('x-ratelimit-remaining');
+        const limitHdr = res.headers.get('x-ratelimit-limit');
+        const reset = res.headers.get('x-ratelimit-reset');
+        const hasToken = !!getToken();
+
+        if (res.status === 401) {
+          throw new Error(`401 — PAT 가 만료되었거나 유효하지 않음. token 버튼으로 갱신.`);
         }
-        throw new Error(`${res.status} ${res.statusText} (${url})`);
+        if (res.status === 404) {
+          throw new Error(`404 — 저장소 없음, 또는 Private 인데 PAT 에 그 저장소 access 가 없음. token 버튼으로 갱신.`);
+        }
+        if (res.status === 403) {
+          if (/secondary rate limit/i.test(bodyMsg)) {
+            throw new Error(`403 (Secondary rate limit) — 짧은 시간에 동시 요청이 너무 많음. 잠시 후 새로고침.`);
+          }
+          if (remaining === '0') {
+            const resetTxt = reset ? new Date(parseInt(reset) * 1000).toLocaleTimeString('ko-KR') : '?';
+            throw new Error(`403 (Primary rate limit ${remaining}/${limitHdr}) — ${hasToken ? 'PAT 한도(5000/h) 소진' : 'PAT 미등록 (60/h 한도). token 버튼으로 PAT 등록 필요'}. 회복: ${resetTxt}`);
+          }
+          if (/sso/i.test(bodyMsg) || res.headers.get('x-github-sso')) {
+            throw new Error(`403 (SSO) — PAT 가 해당 org 에 대해 SSO authorize 필요. GitHub Settings → PAT 페이지에서 "Configure SSO" 클릭.`);
+          }
+          throw new Error(`403 — ${bodyMsg || '권한 부족. PAT 권한 (Contents/Metadata/Pull requests Read-only) 확인'}`);
+        }
+        throw new Error(`${res.status} ${res.statusText}${bodyMsg ? ' — ' + bodyMsg : ''}`);
       }
       return res.json();
+    }
+
+    async function pMapLimit(items, limit, fn) {
+      const results = new Array(items.length);
+      let next = 0;
+      async function worker() {
+        while (true) {
+          const idx = next++;
+          if (idx >= items.length) return;
+          results[idx] = await fn(items[idx], idx);
+        }
+      }
+      const n = Math.min(limit, items.length);
+      await Promise.all(Array.from({ length: n }, () => worker()));
+      return results;
     }
 
     function parseVersionFromCommitMsg(msg) {
@@ -534,9 +572,10 @@
       const tipBranches = new Map();
       const containingBranches = new Map();
 
-      const results = await Promise.all(
-        branches.map(br => loadCommits(br.name).then(commits => ({ br, commits })))
-      );
+      const results = await pMapLimit(branches, 4, async (br) => {
+        const commits = await loadCommits(br.name);
+        return { br, commits };
+      });
 
       for (const { br, commits } of results) {
         if (!commits.length) continue;
