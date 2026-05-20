@@ -78,6 +78,7 @@
       gap: 16px;
     }
     .repo-card {
+      position: relative;
       display: block;
       padding: 16px 18px;
       border: 1px solid var(--line);
@@ -90,6 +91,28 @@
     .repo-card:hover {
       border-color: var(--accent);
       transform: translateY(-2px);
+    }
+    .repo-card .delete-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      width: 22px;
+      height: 22px;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .repo-card:hover .delete-btn { opacity: 1; }
+    .repo-card .delete-btn:hover {
+      color: var(--bad);
+      border-color: var(--bad);
     }
     .repo-card .owner-repo {
       font-weight: 600;
@@ -273,6 +296,33 @@
     저장소 추가용 write PAT 도 별도 localStorage 저장 (key: <code>branch_monitor.write_token.v1</code>).
   </footer>
 
+  <!-- ────────── 저장소 삭제 모달 ────────── -->
+  <div class="modal" id="delete-modal">
+    <div class="box">
+      <h3>저장소 삭제</h3>
+      <p class="modal-desc">
+        <code>repos.json</code> 에서 <b id="delete-target">—</b> 항목을 제거하는 commit 을 만듭니다.
+        실제 GitHub 저장소 자체는 삭제되지 않으며, 카드 목록에서만 사라집니다.<br>
+        브라우저 localStorage 에 저장된 그 저장소의 read PAT 는 그대로 유지됩니다.
+      </p>
+
+      <div class="write-section">
+        <div class="write-label">🔑 branch_monitor write PAT</div>
+        <input id="delete-write-token-input" type="password" placeholder="github_pat_... (Contents: Read & Write)" autocomplete="off">
+        <p class="hint">
+          추가 시 사용한 것과 동일한 PAT. 이미 등록되어 있으면 자동 채워집니다.
+        </p>
+      </div>
+
+      <div class="status" id="delete-status"></div>
+
+      <div class="actions">
+        <button class="secondary" onclick="closeDeleteModal()">취소</button>
+        <button id="delete-submit" onclick="submitDeleteRepo()" style="background: var(--bad); color: #fff;">삭제 commit</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ────────── 저장소 추가 모달 ────────── -->
   <div class="modal" id="add-modal">
     <div class="box">
@@ -361,9 +411,16 @@
             ? '<span class="badge private">private</span>'
             : '<span class="badge public">public</span>';
           card.innerHTML = `
+            <button class="delete-btn" type="button" title="저장소 삭제" aria-label="저장소 삭제">×</button>
             <div class="owner-repo">${escapeHtml(r.owner)}/${escapeHtml(r.repo)}${badge}</div>
             <div class="desc">${escapeHtml(r.description || '(설명 없음)')}</div>
           `;
+          const delBtn = card.querySelector('.delete-btn');
+          delBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openDeleteModal(r.owner, r.repo);
+          });
           list.appendChild(card);
         }
       } catch (e) {
@@ -490,9 +547,102 @@
       }
     }
 
+    // ────────── 저장소 삭제 (GitHub Contents API PUT) ──────────
+    let deleteTarget = null;
+
+    function openDeleteModal(owner, repo) {
+      deleteTarget = { owner, repo };
+      const m = document.getElementById('delete-modal');
+      m.classList.add('open');
+      document.getElementById('delete-target').textContent = `${owner}/${repo}`;
+      document.getElementById('delete-write-token-input').value = localStorage.getItem(WRITE_TOKEN_KEY) || '';
+      setDeleteStatus('', '');
+      document.getElementById('delete-submit').disabled = false;
+    }
+    function closeDeleteModal() {
+      document.getElementById('delete-modal').classList.remove('open');
+      deleteTarget = null;
+    }
+    function setDeleteStatus(msg, type) {
+      const el = document.getElementById('delete-status');
+      if (!msg) { el.className = 'status'; el.textContent = ''; return; }
+      el.className = 'status show ' + (type || 'info');
+      el.textContent = msg;
+    }
+
+    async function submitDeleteRepo() {
+      if (!deleteTarget) return;
+      const { owner, repo } = deleteTarget;
+      const writeToken = document.getElementById('delete-write-token-input').value.trim();
+      if (!writeToken) { setDeleteStatus('branch_monitor write PAT 이 필요합니다.', 'error'); return; }
+
+      localStorage.setItem(WRITE_TOKEN_KEY, writeToken);
+
+      const submitBtn = document.getElementById('delete-submit');
+      submitBtn.disabled = true;
+
+      try {
+        setDeleteStatus('현재 repos.json 가져오는 중...', 'info');
+        const url = `https://api.github.com/repos/${BM_OWNER}/${BM_REPO}/contents/${REPOS_PATH}`;
+        const getRes = await fetch(url, {
+          headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': `Bearer ${writeToken}`
+          }
+        });
+        if (!getRes.ok) {
+          if (getRes.status === 401 || getRes.status === 403) {
+            throw new Error(`인증 실패 (${getRes.status}). PAT 가 Contents Read+Write 권한인지, branch_monitor 저장소를 선택했는지 확인하세요.`);
+          }
+          throw new Error(`repos.json GET 실패: ${getRes.status} ${getRes.statusText}`);
+        }
+        const fileData = await getRes.json();
+        const currentSha = fileData.sha;
+        const currentJson = JSON.parse(base64ToUtf8(fileData.content));
+
+        const before = (currentJson.repos || []).length;
+        currentJson.repos = (currentJson.repos || []).filter(r => !(r.owner === owner && r.repo === repo));
+        if (currentJson.repos.length === before) {
+          setDeleteStatus(`repos.json 에 ${owner}/${repo} 항목이 이미 없습니다.`, 'error');
+          submitBtn.disabled = false;
+          return;
+        }
+
+        const newContentStr = JSON.stringify(currentJson, null, 2) + '\n';
+        const newContentB64 = utf8ToBase64(newContentStr);
+
+        setDeleteStatus(`commit 중... (${owner}/${repo})`, 'info');
+        const putRes = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': `Bearer ${writeToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: `Remove monitored repo: ${owner}/${repo}`,
+            content: newContentB64,
+            sha: currentSha
+          })
+        });
+        if (!putRes.ok) {
+          let detail = '';
+          try { const err = await putRes.json(); detail = err.message ? ' — ' + err.message : ''; } catch (e) {}
+          throw new Error(`commit 실패: ${putRes.status} ${putRes.statusText}${detail}`);
+        }
+
+        setDeleteStatus(`✅ ${owner}/${repo} 삭제 완료. Vercel 자동 재배포 대기 중 (약 30~60 초). 60 초 후 자동 새로고침합니다.`, 'success');
+        setTimeout(() => { location.reload(); }, 60000);
+
+      } catch (e) {
+        setDeleteStatus(`오류: ${e.message}`, 'error');
+        submitBtn.disabled = false;
+      }
+    }
+
     // ESC 키로 모달 닫기
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeAddModal();
+      if (e.key === 'Escape') { closeAddModal(); closeDeleteModal(); }
     });
 
     loadRepos();
