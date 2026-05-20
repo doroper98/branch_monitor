@@ -484,6 +484,16 @@
         .replace(/"/g, "&quot;");
     }
 
+    function formatYMDHMS(d) {
+      const yy = String(d.getFullYear()).slice(-2);
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mi = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      return `${yy}/${mm}/${dd} ${hh}:${mi}:${ss}`;
+    }
+
     async function loadVersion() {
       // VERSION 파일이 있으면 헤더 배지에 표시. 없으면 v(unknown).
       try {
@@ -579,7 +589,7 @@
           }
         },
         commit: {
-          spacing: 56,
+          spacing: 28,
           dot: { size: 7, strokeWidth: 0 },
           message: {
             display: true,
@@ -609,6 +619,8 @@
         } else {
           subject = rawSubject;
         }
+        const ts = formatYMDHMS(new Date(c.commit.author.date));
+        subject = `[${ts}] ${subject}`;
         const refs = sortBranchRefs(tipBranches.get(c.sha) || []);
         return {
           hash: c.sha,
