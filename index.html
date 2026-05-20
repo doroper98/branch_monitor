@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <title>branch_monitor — 저장소 목록</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --line: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --good: #3fb950;
+      --bad: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+    header {
+      padding: 24px 32px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    header h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--accent);
+    }
+    header p {
+      margin: 6px 0 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 32px;
+    }
+    main h2 {
+      font-size: 13px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 0 0 16px 0;
+    }
+    .repo-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+    }
+    .repo-card {
+      display: block;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      text-decoration: none;
+      color: var(--text);
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .repo-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .repo-card .owner-repo {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--accent);
+      margin-bottom: 6px;
+      word-break: break-all;
+    }
+    .repo-card .desc {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 10px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      margin-left: 6px;
+      font-weight: 700;
+      vertical-align: middle;
+    }
+    .badge.private { background: rgba(248, 81, 73, 0.15); color: var(--bad); border: 1px solid var(--bad); }
+    .badge.public  { background: rgba(63, 185, 80, 0.15); color: var(--good); border: 1px solid var(--good); }
+    .loading, .error {
+      color: var(--muted);
+      padding: 20px 0;
+      font-style: italic;
+    }
+    .error { color: var(--bad); font-style: normal; }
+    footer {
+      max-width: 960px;
+      margin: 24px auto 0;
+      padding: 24px 32px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    footer code {
+      background: var(--panel);
+      padding: 1px 6px;
+      border-radius: 4px;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>branch_monitor</h1>
+    <p>여러 GitHub 저장소의 브랜치 / 커밋 / PR 을 한 곳에서 모니터링. 카드 클릭 시 그래프 뷰로 진입.</p>
+  </header>
+  <main>
+    <h2>등록된 저장소</h2>
+    <div id="repo-list" class="repo-grid">
+      <div class="loading">repos.json 을 불러오는 중...</div>
+    </div>
+  </main>
+  <footer>
+    저장소 추가: <code>repos.json</code> 에 항목 1개 append → commit → push → Vercel 자동 재배포.<br>
+    각 저장소의 PAT 는 브라우저 localStorage 에 분리 저장되며 (key: <code>branch_monitor.token.&lt;owner&gt;/&lt;repo&gt;.v1</code>), 외부로 전송되지 않습니다.
+  </footer>
+  <script>
+    async function loadRepos() {
+      const list = document.getElementById('repo-list');
+      try {
+        const res = await fetch('repos.json', { cache: 'no-cache' });
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        const data = await res.json();
+        list.innerHTML = '';
+        if (!data.repos || !data.repos.length) {
+          list.innerHTML = '<div class="loading">등록된 저장소가 없습니다.</div>';
+          return;
+        }
+        for (const r of data.repos) {
+          const card = document.createElement('a');
+          card.className = 'repo-card';
+          card.href = `branches.html?owner=${encodeURIComponent(r.owner)}&repo=${encodeURIComponent(r.repo)}`;
+          const badge = r.private
+            ? '<span class="badge private">private</span>'
+            : '<span class="badge public">public</span>';
+          card.innerHTML = `
+            <div class="owner-repo">${escapeHtml(r.owner)}/${escapeHtml(r.repo)}${badge}</div>
+            <div class="desc">${escapeHtml(r.description || '(설명 없음)')}</div>
+          `;
+          list.appendChild(card);
+        }
+      } catch (e) {
+        list.innerHTML = `<div class="error">repos.json 로딩 실패: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+    function escapeHtml(s) {
+      return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    loadRepos();
+  </script>
+</body>
+</html>

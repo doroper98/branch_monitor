@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "comment": "여기에 등록된 저장소가 랜딩 페이지 카드로 노출됩니다. 새 저장소 추가는 repos 배열에 항목 1개 append 후 commit/push. Vercel 이 자동 재배포.",
+  "repos": [
+    {
+      "owner": "doroper98",
+      "repo": "osint_generator",
+      "description": "OSINT 영상 자동 생성 시스템. Private 저장소이므로 PAT 필요.",
+      "private": true,
+      "branches": {
+        "main": "default 브랜치이자 메인 개발 라인. 모든 Phase 작업이 여기서 진행. v0.1.0 부터 시작."
+      },
+      "commits": {
+        "bb530d2": "Phase 0 + Phase 1 — 저장소 초기화, 거버넌스 골격, Command Center MVP",
+        "083a764": "Vercel 호스팅 + Private 저장소 PAT 인증 다이얼로그 추가",
+        "d0c8771": "docs/index.html 추가로 Vercel 루트 URL 404 수정",
+        "c359bd8": "Branch Viewer 를 진짜 git graph 로 교체 + 다음 세션용 HANDOFF.md 신설"
+      }
+    },
+    {
+      "owner": "doroper98",
+      "repo": "agents_reviewer",
+      "description": "AI 에이전트 리뷰 도구. Public 저장소.",
+      "private": false,
+      "branches": {},
+      "commits": {}
+    }
+  ]
+}

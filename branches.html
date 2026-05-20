@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ko">
+<!--
+  branch_monitor — multi-repo branch viewer (vertical git graph)
+
+  배포 / 호스팅:
+    Vercel (Public 저장소, 푸시마다 자동 재배포).
+    안정 도메인 예: https://branch-monitor.vercel.app/
+
+  진입:
+    /branches.html?owner=OWNER&repo=REPO
+    파라미터 없거나 비어 있으면 /index.html (랜딩) 으로 리다이렉트.
+
+  인증:
+    Private 저장소 조회에는 GitHub Personal Access Token (PAT) 필요.
+    페이지에서 입력 시 브라우저 localStorage 에 저장 (저장소별 분리 key).
+    필요 권한: Fine-grained token, Contents/Metadata/PR Read-only.
+
+  그래프 렌더러:
+    @gitgraph/js (jsDelivr CDN). GitHub API 의 commit.parents 를 사용해
+    진짜 git 토폴로지를 SVG 로 렌더.
+
+  데이터 출처:
+    /repos.json 의 해당 owner/repo 항목에서 description, branches, commits 한글 매핑을 가져옴.
+    등록되지 않은 저장소도 동작은 함 (한글 라벨 / 설명 없이).
+-->
+<head>
+  <meta charset="utf-8">
+  <title>branch_monitor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/@gitgraph/js"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --line: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --good: #3fb950;
+      --warn: #d29922;
+      --bad: #f85149;
+      --merged: #a371f7;
+      --open: #3fb950;
+      --closed: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    header .back {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 12px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+    header .back:hover { color: var(--accent); border-color: var(--accent); }
+    header h1 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    header .version {
+      background: var(--accent);
+      color: #0d1117;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    header .meta {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    header .refresh {
+      margin-left: auto;
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--line);
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font: inherit;
+    }
+    header .refresh:hover { border-color: var(--accent); color: var(--accent); }
+    header .token-btn {
+      background: transparent;
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font: inherit;
+    }
+    header .token-btn:hover { color: var(--accent); border-color: var(--accent); border-style: solid; }
+    header .token-btn.set { color: var(--good); border-color: var(--good); border-style: solid; }
+
+    .token-dialog {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    .token-dialog.open { display: flex; }
+    .token-dialog .box {
+      background: var(--panel);
+      border: 1px solid var(--accent);
+      border-radius: 8px;
+      padding: 20px;
+      width: 560px;
+      max-width: 90vw;
+    }
+    .token-dialog h3 { margin: 0 0 8px 0; color: var(--accent); font-size: 14px; }
+    .token-dialog p { color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .token-dialog input {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0d1117;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      font: inherit;
+      margin: 8px 0;
+    }
+    .token-dialog .actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+    .token-dialog button {
+      padding: 6px 14px;
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+    .token-dialog button.secondary { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 0;
+      min-height: calc(100vh - 60px);
+    }
+
+    .tree {
+      padding: 20px;
+      border-right: 1px solid var(--line);
+      overflow: auto;
+      background: var(--bg);
+    }
+    .tree #graph {
+      min-height: 200px;
+    }
+    .tree #graph svg {
+      background: transparent;
+    }
+    .tree #graph svg text {
+      fill: var(--text) !important;
+      font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Menlo, Consolas, monospace !important;
+    }
+
+    .side {
+      padding: 20px;
+      background: var(--panel);
+      overflow-y: auto;
+      max-height: calc(100vh - 60px);
+      position: sticky;
+      top: 0;
+    }
+    .side h2 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      color: var(--accent);
+    }
+    .side .repo-summary {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 16px;
+      background: #0d1117;
+    }
+    .side .repo-summary .label {
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 4px;
+    }
+    .side .repo-summary .value {
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .side .repo-summary .value a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .side .repo-summary .value a:hover { text-decoration: underline; }
+    .side .repo-summary .desc {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .side .branch-card {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      background: #0d1117;
+      cursor: pointer;
+    }
+    .side .branch-card:hover { border-color: var(--accent); }
+    .side .branch-card.active {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+    .side .branch-card .name {
+      font-weight: 600;
+      color: var(--text);
+      word-break: break-all;
+    }
+    .side .branch-card .desc {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 6px;
+    }
+    .side .branch-card .pr-badge {
+      display: inline-block;
+      margin-top: 6px;
+      font-size: 11px;
+      padding: 1px 6px;
+      border-radius: 10px;
+      font-weight: 700;
+    }
+    .side .branch-card .pr-badge.open    { background: rgba(63, 185, 80, 0.15);   color: var(--open);   border: 1px solid var(--open); }
+    .side .branch-card .pr-badge.merged  { background: rgba(163, 113, 247, 0.15); color: var(--merged); border: 1px solid var(--merged); }
+    .side .branch-card .pr-badge.closed  { background: rgba(248, 81, 73, 0.15);   color: var(--closed); border: 1px solid var(--closed); }
+    .side .branch-card .pr-badge.default { background: rgba(88, 166, 255, 0.15);  color: var(--accent); border: 1px solid var(--accent); }
+
+    .loading {
+      color: var(--muted);
+      font-style: italic;
+      padding: 20px 0;
+    }
+    .error {
+      color: var(--bad);
+      padding: 12px;
+      border: 1px solid var(--bad);
+      border-radius: 6px;
+      background: rgba(248, 81, 73, 0.05);
+    }
+
+    footer {
+      grid-column: 1 / -1;
+      padding: 12px 20px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      background: var(--panel);
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      .side { position: static; max-height: none; border-top: 1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="back" href="index.html">← 모든 저장소</a>
+    <h1 id="repo-name">loading...</h1>
+    <span class="version" id="repo-version">v?.?.?</span>
+    <span class="meta" id="meta-info">loading...</span>
+    <button class="token-btn" id="token-btn" onclick="openTokenDialog()">token</button>
+    <button class="refresh" onclick="loadAll(true)">refresh</button>
+  </header>
+
+  <div class="token-dialog" id="token-dialog">
+    <div class="box">
+      <h3>GitHub Personal Access Token</h3>
+      <p>
+        <b id="tokenDialogRepoName">현재 저장소</b> 의 브랜치 / 커밋 / PR 데이터를 받기 위한 토큰입니다.<br>
+        토큰은 <b>이 브라우저 localStorage 에만 분리 저장</b> (저장소별 다른 key) 되며 외부로 전송되지 않습니다.<br><br>
+        <b>발급 방법</b>:
+        GitHub → Settings → Developer settings → Personal access tokens →
+        <b>Fine-grained tokens</b> → Generate new token →
+        <b>Resource owner</b> 본인 → <b>Repository access</b> = 해당 저장소 →
+        <b>Repository permissions</b>: <code>Contents: Read-only</code>, <code>Metadata: Read-only</code>, <code>Pull requests: Read-only</code>.
+      </p>
+      <input id="token-input" type="password" placeholder="ghp_... 또는 github_pat_..." autocomplete="off">
+      <div class="actions">
+        <button class="secondary" onclick="clearToken()">delete</button>
+        <button class="secondary" onclick="closeTokenDialog()">cancel</button>
+        <button onclick="saveToken()">save</button>
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <section class="tree">
+      <div id="graph">
+        <div class="loading">브랜치 정보를 가져오는 중...</div>
+      </div>
+    </section>
+    <aside class="side" id="side">
+      <div class="repo-summary" id="repo-summary">
+        <div class="label">현재 저장소</div>
+        <div class="value" id="repo-summary-name">—</div>
+        <div class="desc" id="repo-summary-desc">—</div>
+      </div>
+      <h2>브랜치 설명</h2>
+      <div id="branch-desc" class="loading">왼쪽에서 브랜치를 선택하세요.</div>
+    </aside>
+    <footer id="footer">
+      데이터: GitHub REST API · 그래프: @gitgraph/js · 인증: 본인 PAT (localStorage, 저장소별 분리)
+    </footer>
+  </main>
+
+  <script>
+    // ─── URL 파라미터 파싱 + 기본값 ──────────────────────────────────────
+    function sanitizeSlug(s) {
+      return (s || '').replace(/[^a-zA-Z0-9._/-]/g, '');
+    }
+    const _params = new URLSearchParams(location.search);
+    const OWNER = sanitizeSlug(_params.get('owner') || '');
+    const REPO = sanitizeSlug(_params.get('repo') || '');
+    if (!OWNER || !REPO) {
+      location.replace('index.html');
+      throw new Error('redirect to landing');
+    }
+    const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
+    const TOKEN_KEY = `branch_monitor.token.${OWNER}/${REPO}.v1`;
+    const COMMITS_PER_BRANCH = 30;
+
+    // repos.json 에서 로드되는 데이터 (loadReposJson 에서 채움)
+    let BRANCH_DESCRIPTIONS = {};
+    let COMMIT_DESCRIPTIONS = {};
+    let REPO_META = null;
+
+    // 같은 SHA 에 여러 브랜치 라벨이 붙을 때 우선순위. 숫자 작을수록 먼저.
+    const BRANCH_PRIORITY = [
+      /^main$/,
+      /^master$/,
+      /^develop$/,
+      /^release\//,
+      /^feature\//,
+      /^test\//,
+      /^claude\//,
+    ];
+    function branchPriority(name) {
+      for (let i = 0; i < BRANCH_PRIORITY.length; i++) {
+        if (BRANCH_PRIORITY[i].test(name)) return i;
+      }
+      return 999;
+    }
+    function sortBranchRefs(refs) {
+      return [...refs].sort((a, b) => {
+        const pa = branchPriority(a);
+        const pb = branchPriority(b);
+        if (pa !== pb) return pa - pb;
+        return a.localeCompare(b);
+      });
+    }
+
+    const VERSION_RE = /^v(\d+\.\d+\.\d+):/;
+    let prDataByBranch = {};
+    let branchTipsByBranch = {};
+    let selectedBranch = null;
+
+    // ─── repos.json 메타데이터 로드 ───────────────────────────────────────
+    async function loadReposJson() {
+      const summaryName = document.getElementById('repo-summary-name');
+      const summaryDesc = document.getElementById('repo-summary-desc');
+      const repoTitle = document.getElementById('repo-name');
+      const tokenDialogName = document.getElementById('tokenDialogRepoName');
+
+      const displayName = `${OWNER}/${REPO}`;
+      repoTitle.textContent = displayName;
+      document.title = `${displayName} — branch_monitor`;
+      tokenDialogName.textContent = displayName;
+      summaryName.innerHTML = `<a href="https://github.com/${encodeURIComponent(OWNER)}/${encodeURIComponent(REPO)}" target="_blank" rel="noopener">${escapeHtml(displayName)}</a>`;
+
+      try {
+        const r = await fetch('repos.json', { cache: 'no-cache' });
+        if (!r.ok) throw new Error(`${r.status}`);
+        const data = await r.json();
+        const match = (data.repos || []).find(x => x.owner === OWNER && x.repo === REPO);
+        if (match) {
+          REPO_META = match;
+          BRANCH_DESCRIPTIONS = match.branches || {};
+          COMMIT_DESCRIPTIONS = match.commits || {};
+          summaryDesc.textContent = match.description || '(설명 없음)';
+        } else {
+          summaryDesc.innerHTML = `<span style="color: var(--warn)">repos.json 에 등록되지 않은 저장소. 동작은 하지만 한글 라벨 / 설명이 비어 있습니다.</span>`;
+        }
+      } catch (e) {
+        summaryDesc.innerHTML = `<span style="color: var(--warn)">repos.json 로드 실패: ${escapeHtml(e.message)}</span>`;
+      }
+    }
+
+    // ─── 토큰 관리 ─────────────────────────────────────────────────────────
+    function getToken() {
+      return localStorage.getItem(TOKEN_KEY) || "";
+    }
+    function setTokenBadge() {
+      const btn = document.getElementById("token-btn");
+      if (getToken()) {
+        btn.classList.add("set");
+        btn.textContent = "token ✓";
+      } else {
+        btn.classList.remove("set");
+        btn.textContent = "token";
+      }
+    }
+    function openTokenDialog() {
+      document.getElementById("token-dialog").classList.add("open");
+      document.getElementById("token-input").value = getToken();
+      document.getElementById("token-input").focus();
+    }
+    function closeTokenDialog() {
+      document.getElementById("token-dialog").classList.remove("open");
+    }
+    function saveToken() {
+      const v = document.getElementById("token-input").value.trim();
+      if (v) localStorage.setItem(TOKEN_KEY, v);
+      else localStorage.removeItem(TOKEN_KEY);
+      closeTokenDialog();
+      setTokenBadge();
+      loadAll(true);
+    }
+    function clearToken() {
+      localStorage.removeItem(TOKEN_KEY);
+      document.getElementById("token-input").value = "";
+      setTokenBadge();
+    }
+
+    function authHeaders() {
+      const headers = { "Accept": "application/vnd.github+json" };
+      const t = getToken();
+      if (t) headers["Authorization"] = `Bearer ${t}`;
+      return headers;
+    }
+
+    async function fetchJSON(url) {
+      const res = await fetch(url, { headers: authHeaders() });
+      if (!res.ok) {
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
+          throw new Error(`${res.status} ${res.statusText} — 권한 또는 인증 문제. token 버튼으로 PAT 를 등록/갱신해 보세요.`);
+        }
+        throw new Error(`${res.status} ${res.statusText} (${url})`);
+      }
+      return res.json();
+    }
+
+    function parseVersionFromCommitMsg(msg) {
+      const firstLine = (msg || "").split("\n")[0];
+      const m = firstLine.match(VERSION_RE);
+      return m ? m[1] : null;
+    }
+
+    function escapeHtml(s) {
+      return (s || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    async function loadVersion() {
+      // VERSION 파일이 있으면 헤더 배지에 표시. 없으면 v(unknown).
+      try {
+        const data = await fetchJSON(`${API}/contents/VERSION`);
+        const raw = atob((data.content || "").replace(/\n/g, ""));
+        document.getElementById("repo-version").textContent = "v" + raw.trim();
+      } catch (e) {
+        document.getElementById("repo-version").textContent = "v(unknown)";
+      }
+    }
+
+    async function loadBranches() {
+      return await fetchJSON(`${API}/branches?per_page=100`);
+    }
+
+    async function loadPulls() {
+      const pulls = await fetchJSON(`${API}/pulls?state=all&per_page=100`);
+      const map = {};
+      for (const p of pulls) {
+        const key = p.head && p.head.ref;
+        if (!key) continue;
+        const state = p.merged_at ? "merged" : p.state;
+        if (!map[key]) map[key] = { state, number: p.number, title: p.title, url: p.html_url };
+      }
+      return map;
+    }
+
+    async function loadCommits(branchName) {
+      try {
+        return await fetchJSON(`${API}/commits?sha=${encodeURIComponent(branchName)}&per_page=${COMMITS_PER_BRANCH}`);
+      } catch (e) {
+        return [];
+      }
+    }
+
+    async function buildCommitGraph(branches) {
+      const all = new Map();
+      const tipBranches = new Map();
+      const containingBranches = new Map();
+
+      const results = await Promise.all(
+        branches.map(br => loadCommits(br.name).then(commits => ({ br, commits })))
+      );
+
+      for (const { br, commits } of results) {
+        if (!commits.length) continue;
+        const tipSha = commits[0].sha;
+        if (!tipBranches.has(tipSha)) tipBranches.set(tipSha, new Set());
+        tipBranches.get(tipSha).add(br.name);
+
+        for (const c of commits) {
+          if (!all.has(c.sha)) all.set(c.sha, c);
+          if (!containingBranches.has(c.sha)) containingBranches.set(c.sha, new Set());
+          containingBranches.get(c.sha).add(br.name);
+        }
+      }
+
+      const sorted = [...all.values()].sort((a, b) => {
+        const ad = new Date(a.commit.author.date).getTime();
+        const bd = new Date(b.commit.author.date).getTime();
+        return ad - bd;
+      });
+
+      const tipByBranch = {};
+      for (const { br, commits } of results) {
+        if (commits.length) tipByBranch[br.name] = commits[0].sha;
+      }
+
+      return { sorted, tipBranches, containingBranches, tipByBranch };
+    }
+
+    function renderGraph(sorted, tipBranches) {
+      const container = document.getElementById("graph");
+      container.innerHTML = "";
+
+      if (!sorted.length) {
+        container.innerHTML = `<div class="loading">표시할 커밋이 없습니다.</div>`;
+        return;
+      }
+
+      const template = GitgraphJS.templateExtend(GitgraphJS.TemplateName.Metro, {
+        colors: ["#58a6ff", "#a371f7", "#3fb950", "#d29922", "#f85149", "#f778ba", "#79c0ff"],
+        branch: {
+          lineWidth: 3,
+          spacing: 36,
+          label: {
+            display: true,
+            bgColor: "#161b22",
+            color: "#c9d1d9",
+            strokeColor: "#30363d",
+            borderRadius: 6,
+            font: "600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+          }
+        },
+        commit: {
+          spacing: 56,
+          dot: { size: 7, strokeWidth: 0 },
+          message: {
+            display: true,
+            displayAuthor: false,
+            displayHash: true,
+            font: "13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+            color: "#c9d1d9"
+          }
+        }
+      });
+
+      const gitgraph = GitgraphJS.createGitgraph(container, {
+        template,
+        orientation: "vertical",
+        mode: undefined,
+        author: " "
+      });
+
+      const commits = sorted.map(c => {
+        const shortSha = c.sha.slice(0, 7);
+        const rawSubject = (c.commit.message || "").split("\n")[0];
+        const verMatch = rawSubject.match(VERSION_RE);
+        const overrideText = COMMIT_DESCRIPTIONS[shortSha];
+        let subject;
+        if (overrideText) {
+          subject = verMatch ? `v${verMatch[1]}: ${overrideText}` : overrideText;
+        } else {
+          subject = rawSubject;
+        }
+        const refs = sortBranchRefs(tipBranches.get(c.sha) || []);
+        return {
+          hash: c.sha,
+          hashAbbrev: shortSha,
+          parents: (c.parents || []).map(p => p.sha),
+          parentsAbbrev: (c.parents || []).map(p => p.sha.slice(0, 7)),
+          subject,
+          body: "",
+          bodyHTML: "",
+          notes: "",
+          stats: [],
+          refs,
+          author: {
+            name: (c.commit.author && c.commit.author.name) || "?",
+            email: (c.commit.author && c.commit.author.email) || "",
+            timestamp: Math.floor(new Date(c.commit.author.date).getTime() / 1000)
+          },
+          committer: {
+            name: (c.commit.committer && c.commit.committer.name) || "?",
+            email: (c.commit.committer && c.commit.committer.email) || "",
+            timestamp: Math.floor(new Date((c.commit.committer && c.commit.committer.date) || c.commit.author.date).getTime() / 1000)
+          },
+          style: {
+            dot: {},
+            message: { color: "#c9d1d9" }
+          },
+          onClick: () => {
+            const sortedRefs = sortBranchRefs(tipBranches.get(c.sha) || []);
+            if (sortedRefs.length) selectBranch(sortedRefs[0]);
+          }
+        };
+      });
+
+      gitgraph.import(commits);
+    }
+
+    function renderSide() {
+      const container = document.getElementById("branch-desc");
+      container.innerHTML = "";
+
+      const describedKeys = Object.keys(BRANCH_DESCRIPTIONS);
+      const undescribedKeys = Object.keys(branchTipsByBranch).filter(n => !BRANCH_DESCRIPTIONS[n]);
+
+      if (!describedKeys.length && !undescribedKeys.length) {
+        container.innerHTML = `<div class="loading">브랜치 정보 없음.</div>`;
+        return;
+      }
+
+      for (const name of describedKeys) {
+        const card = document.createElement("div");
+        card.className = "branch-card" + (name === selectedBranch ? " active" : "");
+        const pr = prDataByBranch[name];
+        const isDefault = name === "main" || name === "master";
+        let badges = "";
+        if (isDefault) badges += `<span class="pr-badge default">default</span> `;
+        if (pr) badges += `<span class="pr-badge ${pr.state}">PR #${pr.number} · ${pr.state}</span>`;
+        card.innerHTML = `
+          <div class="name">${escapeHtml(name)}</div>
+          ${badges ? `<div>${badges}</div>` : ""}
+          <div class="desc">${escapeHtml(BRANCH_DESCRIPTIONS[name])}</div>
+        `;
+        card.onclick = () => selectBranch(name);
+        container.appendChild(card);
+      }
+
+      for (const name of undescribedKeys) {
+        const card = document.createElement("div");
+        card.className = "branch-card" + (name === selectedBranch ? " active" : "");
+        const pr = prDataByBranch[name];
+        let badges = "";
+        if (pr) badges += `<span class="pr-badge ${pr.state}">PR #${pr.number} · ${pr.state}</span>`;
+        card.innerHTML = `
+          <div class="name">${escapeHtml(name)}</div>
+          ${badges ? `<div>${badges}</div>` : ""}
+          <div class="desc" style="color: var(--warn)">설명 미등록. repos.json 의 해당 저장소 항목 <code>branches</code> 에 한 줄 추가하세요.</div>
+        `;
+        card.onclick = () => selectBranch(name);
+        container.appendChild(card);
+      }
+    }
+
+    function selectBranch(name) {
+      selectedBranch = name;
+      renderSide();
+    }
+
+    async function loadAll(force) {
+      const meta = document.getElementById("meta-info");
+      const graphDiv = document.getElementById("graph");
+      graphDiv.innerHTML = `<div class="loading">브랜치 정보를 가져오는 중...</div>`;
+      try {
+        await loadReposJson();
+        await loadVersion();
+        const [branches, pulls] = await Promise.all([loadBranches(), loadPulls()]);
+        prDataByBranch = pulls;
+
+        const { sorted, tipBranches, tipByBranch } = await buildCommitGraph(branches);
+        branchTipsByBranch = tipByBranch;
+
+        renderGraph(sorted, tipBranches);
+
+        const now = new Date().toLocaleString("ko-KR");
+        meta.textContent = `${branches.length} branches · ${sorted.length} commits · ${Object.keys(pulls).length} PRs · refreshed ${now}`;
+        renderSide();
+      } catch (e) {
+        graphDiv.innerHTML = `<div class="error">데이터 로딩 실패: ${escapeHtml(e.message)}<br>잠시 후 다시 시도해 주세요.</div>`;
+      }
+    }
+
+    setTokenBadge();
+    // Private 저장소이고 토큰 없으면 자동으로 다이얼로그 노출.
+    loadReposJson().then(() => {
+      if (REPO_META && REPO_META.private && !getToken()) {
+        setTimeout(openTokenDialog, 200);
+      }
+      loadAll();
+    });
+  </script>
+</body>
+</html>
