@@ -13,6 +13,7 @@
       --muted: #8b949e;
       --accent: #58a6ff;
       --good: #3fb950;
+      --warn: #d29922;
       --bad: #f85149;
     }
     * { box-sizing: border-box; }
@@ -29,7 +30,13 @@
       padding: 24px 32px;
       border-bottom: 1px solid var(--line);
       background: var(--panel);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
     }
+    header .title-block { flex: 1 1 auto; min-width: 0; }
     header h1 {
       margin: 0;
       font-size: 20px;
@@ -41,6 +48,18 @@
       color: var(--muted);
       font-size: 12px;
     }
+    header button.add-btn {
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    header button.add-btn:hover { opacity: 0.9; }
     main {
       max-width: 960px;
       margin: 0 auto;
@@ -115,12 +134,132 @@
       border-radius: 4px;
       color: var(--text);
     }
+
+    /* ────────── Modal ────────── */
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      padding: 16px;
+    }
+    .modal.open { display: flex; }
+    .modal .box {
+      background: var(--panel);
+      border: 1px solid var(--accent);
+      border-radius: 10px;
+      padding: 24px;
+      width: 580px;
+      max-width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .modal h3 { margin: 0 0 4px 0; color: var(--accent); font-size: 16px; }
+    .modal .modal-desc { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0 0 16px 0; }
+    .modal label {
+      display: block;
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin: 12px 0 4px 0;
+      font-weight: 700;
+    }
+    .modal label.checkbox-label {
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 400;
+      font-size: 13px;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .modal input[type="text"],
+    .modal input[type="password"] {
+      width: 100%;
+      padding: 8px 10px;
+      background: #0d1117;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      font: inherit;
+    }
+    .modal input[type="text"]:focus,
+    .modal input[type="password"]:focus {
+      border-color: var(--accent);
+      outline: none;
+    }
+    .modal .hint {
+      font-size: 11px;
+      color: var(--muted);
+      margin: 4px 0 0 0;
+      line-height: 1.5;
+    }
+    .modal .hint a { color: var(--accent); text-decoration: none; }
+    .modal .hint a:hover { text-decoration: underline; }
+    .modal .write-section {
+      background: rgba(88, 166, 255, 0.05);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 12px;
+      margin-bottom: 16px;
+    }
+    .modal .write-section .write-label {
+      font-size: 11px;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .modal .status {
+      margin: 12px 0 0 0;
+      padding: 10px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      display: none;
+    }
+    .modal .status.show { display: block; }
+    .modal .status.info    { background: rgba(88, 166, 255, 0.1);  color: var(--accent); border: 1px solid var(--accent); }
+    .modal .status.success { background: rgba(63, 185, 80, 0.1);   color: var(--good);   border: 1px solid var(--good); }
+    .modal .status.error   { background: rgba(248, 81, 73, 0.1);   color: var(--bad);    border: 1px solid var(--bad); }
+    .modal .actions {
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+      margin-top: 20px;
+    }
+    .modal button {
+      padding: 8px 16px;
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 700;
+    }
+    .modal button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .modal button.secondary {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--line);
+    }
+    .modal button.secondary:hover { color: var(--accent); border-color: var(--accent); }
   </style>
 </head>
 <body>
   <header>
-    <h1>branch_monitor</h1>
-    <p>여러 GitHub 저장소의 브랜치 / 커밋 / PR 을 한 곳에서 모니터링. 카드 클릭 시 그래프 뷰로 진입.</p>
+    <div class="title-block">
+      <h1>branch_monitor</h1>
+      <p>여러 GitHub 저장소의 브랜치 / 커밋 / PR 을 한 곳에서 모니터링. 카드 클릭 시 그래프 뷰로 진입.</p>
+    </div>
+    <button class="add-btn" onclick="openAddModal()">+ 저장소 추가</button>
   </header>
   <main>
     <h2>등록된 저장소</h2>
@@ -129,19 +268,89 @@
     </div>
   </main>
   <footer>
-    저장소 추가: <code>repos.json</code> 에 항목 1개 append → commit → push → Vercel 자동 재배포.<br>
-    각 저장소의 PAT 는 브라우저 localStorage 에 분리 저장되며 (key: <code>branch_monitor.token.&lt;owner&gt;/&lt;repo&gt;.v1</code>), 외부로 전송되지 않습니다.
+    저장소 추가: 우상단 <b>+ 저장소 추가</b> 버튼 (또는 직접 <code>repos.json</code> 편집).<br>
+    각 저장소의 PAT 는 브라우저 localStorage 에 분리 저장 (key: <code>branch_monitor.token.&lt;owner&gt;/&lt;repo&gt;.v1</code>), 외부 전송 없음.<br>
+    저장소 추가용 write PAT 도 별도 localStorage 저장 (key: <code>branch_monitor.write_token.v1</code>).
   </footer>
+
+  <!-- ────────── 저장소 추가 모달 ────────── -->
+  <div class="modal" id="add-modal">
+    <div class="box">
+      <h3>+ 저장소 추가</h3>
+      <p class="modal-desc">
+        새 저장소를 <code>repos.json</code> 에 commit 합니다. 본 commit 은 branch_monitor 저장소 자체에 들어가며,
+        Vercel 이 약 30~60 초 후 자동 재배포하면 카드가 노출됩니다.
+      </p>
+
+      <div class="write-section">
+        <div class="write-label">🔑 branch_monitor write PAT</div>
+        <input id="write-token-input" type="password" placeholder="github_pat_... (Contents: Read & Write)" autocomplete="off">
+        <p class="hint">
+          branch_monitor 저장소 자체에 commit 하기 위한 PAT. 한 번만 등록하면 이 브라우저에 기억됩니다.<br>
+          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">PAT 발급 →</a>
+          (Resource = branch_monitor, Permissions = <b>Contents: Read and write</b> + Metadata: Read-only)
+        </p>
+      </div>
+
+      <label>Owner (필수)</label>
+      <input id="add-owner" type="text" placeholder="예: doroper98" autocomplete="off">
+
+      <label>Repository name (필수)</label>
+      <input id="add-repo" type="text" placeholder="예: my-new-project" autocomplete="off">
+
+      <label>Description (한국어 권장)</label>
+      <input id="add-desc" type="text" placeholder="예: 신규 프로젝트 — XX 자동화" autocomplete="off">
+
+      <label class="checkbox-label">
+        <input id="add-private" type="checkbox">
+        Private 저장소 (체크 시 카드에 빨간 private 배지)
+      </label>
+
+      <div class="status" id="add-status"></div>
+
+      <div class="actions">
+        <button class="secondary" onclick="closeAddModal()">취소</button>
+        <button id="add-submit" onclick="submitAddRepo()">branch_monitor 에 commit</button>
+      </div>
+    </div>
+  </div>
+
   <script>
+    // ────────── 상수 ──────────
+    const BM_OWNER = 'doroper98';
+    const BM_REPO = 'branch_monitor';
+    const WRITE_TOKEN_KEY = 'branch_monitor.write_token.v1';
+    const REPOS_PATH = 'repos.json';
+
+    // ────────── 일반 유틸 ──────────
+    function escapeHtml(s) {
+      return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // UTF-8 안전 base64 인코딩/디코딩 (한국어 포함)
+    function utf8ToBase64(str) {
+      const bytes = new TextEncoder().encode(str);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return btoa(binary);
+    }
+    function base64ToUtf8(str) {
+      const binary = atob(str.replace(/\n/g, ''));
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
+    }
+
+    // ────────── 랜딩 카드 렌더 ──────────
     async function loadRepos() {
       const list = document.getElementById('repo-list');
       try {
-        const res = await fetch('repos.json', { cache: 'no-cache' });
+        const res = await fetch('repos.json?_=' + Date.now(), { cache: 'no-store' });
         if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
         const data = await res.json();
         list.innerHTML = '';
         if (!data.repos || !data.repos.length) {
-          list.innerHTML = '<div class="loading">등록된 저장소가 없습니다.</div>';
+          list.innerHTML = '<div class="loading">등록된 저장소가 없습니다. 우상단 [+ 저장소 추가] 로 첫 항목을 등록하세요.</div>';
           return;
         }
         for (const r of data.repos) {
@@ -161,9 +370,131 @@
         list.innerHTML = `<div class="error">repos.json 로딩 실패: ${escapeHtml(e.message)}</div>`;
       }
     }
-    function escapeHtml(s) {
-      return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+    // ────────── 모달 제어 ──────────
+    function openAddModal() {
+      const m = document.getElementById('add-modal');
+      m.classList.add('open');
+      document.getElementById('write-token-input').value = localStorage.getItem(WRITE_TOKEN_KEY) || '';
+      document.getElementById('add-owner').value = 'doroper98';
+      document.getElementById('add-repo').value = '';
+      document.getElementById('add-desc').value = '';
+      document.getElementById('add-private').checked = false;
+      setStatus('', '');
+      document.getElementById('add-submit').disabled = false;
+      document.getElementById('add-repo').focus();
     }
+    function closeAddModal() {
+      document.getElementById('add-modal').classList.remove('open');
+    }
+    function setStatus(msg, type) {
+      const el = document.getElementById('add-status');
+      if (!msg) { el.className = 'status'; el.textContent = ''; return; }
+      el.className = 'status show ' + (type || 'info');
+      el.textContent = msg;
+    }
+
+    // ────────── 저장소 추가 (GitHub Contents API PUT) ──────────
+    async function submitAddRepo() {
+      const writeToken = document.getElementById('write-token-input').value.trim();
+      const owner = document.getElementById('add-owner').value.trim();
+      const repo = document.getElementById('add-repo').value.trim();
+      const description = document.getElementById('add-desc').value.trim();
+      const isPrivate = document.getElementById('add-private').checked;
+
+      // 입력 검증
+      if (!writeToken) { setStatus('branch_monitor write PAT 이 필요합니다.', 'error'); return; }
+      if (!owner || !repo) { setStatus('owner 와 repo 는 필수입니다.', 'error'); return; }
+      const slugRe = /^[a-zA-Z0-9._-]+$/;
+      if (!slugRe.test(owner) || !slugRe.test(repo)) {
+        setStatus('owner / repo 는 영문/숫자/._- 만 허용됩니다.', 'error'); return;
+      }
+
+      // 쓰기 토큰 저장
+      localStorage.setItem(WRITE_TOKEN_KEY, writeToken);
+
+      const submitBtn = document.getElementById('add-submit');
+      submitBtn.disabled = true;
+
+      try {
+        // 1) 현재 repos.json + sha 조회
+        setStatus('현재 repos.json 가져오는 중...', 'info');
+        const url = `https://api.github.com/repos/${BM_OWNER}/${BM_REPO}/contents/${REPOS_PATH}`;
+        const getRes = await fetch(url, {
+          headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': `Bearer ${writeToken}`
+          }
+        });
+        if (!getRes.ok) {
+          if (getRes.status === 401 || getRes.status === 403) {
+            throw new Error(`인증 실패 (${getRes.status}). PAT 가 Contents Read+Write 권한인지, branch_monitor 저장소를 선택했는지 확인하세요.`);
+          }
+          throw new Error(`repos.json GET 실패: ${getRes.status} ${getRes.statusText}`);
+        }
+        const fileData = await getRes.json();
+        const currentSha = fileData.sha;
+        const currentJson = JSON.parse(base64ToUtf8(fileData.content));
+
+        // 2) 중복 검사
+        const exists = (currentJson.repos || []).some(r => r.owner === owner && r.repo === repo);
+        if (exists) {
+          setStatus(`이미 등록된 저장소: ${owner}/${repo}`, 'error');
+          submitBtn.disabled = false;
+          return;
+        }
+
+        // 3) 새 항목 추가
+        const newEntry = {
+          owner,
+          repo,
+          description: description || `${owner}/${repo}`,
+          private: isPrivate,
+          branches: {},
+          commits: {}
+        };
+        currentJson.repos = currentJson.repos || [];
+        currentJson.repos.push(newEntry);
+
+        const newContentStr = JSON.stringify(currentJson, null, 2) + '\n';
+        const newContentB64 = utf8ToBase64(newContentStr);
+
+        // 4) PUT
+        setStatus(`commit 중... (${owner}/${repo})`, 'info');
+        const putRes = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Accept': 'application/vnd.github+json',
+            'Authorization': `Bearer ${writeToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            message: `Add monitored repo: ${owner}/${repo}`,
+            content: newContentB64,
+            sha: currentSha
+          })
+        });
+        if (!putRes.ok) {
+          let detail = '';
+          try { const err = await putRes.json(); detail = err.message ? ' — ' + err.message : ''; } catch (e) {}
+          throw new Error(`commit 실패: ${putRes.status} ${putRes.statusText}${detail}`);
+        }
+
+        setStatus(`✅ ${owner}/${repo} 등록 완료. Vercel 자동 재배포 대기 중 (약 30~60 초). 60 초 후 자동 새로고침합니다.`, 'success');
+
+        setTimeout(() => { location.reload(); }, 60000);
+
+      } catch (e) {
+        setStatus(`오류: ${e.message}`, 'error');
+        submitBtn.disabled = false;
+      }
+    }
+
+    // ESC 키로 모달 닫기
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeAddModal();
+    });
+
     loadRepos();
   </script>
 </body>
