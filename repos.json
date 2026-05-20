@@ -28,10 +28,21 @@
     {
       "owner": "doroper98",
       "repo": "branch_monitor",
-      "description": "doroper98/branch_monitor",
+      "description": "여러 GitHub 저장소의 브랜치 / 커밋 / PR 을 한 화면에서 모니터링하는 도구. 본 페이지 자체.",
       "private": false,
-      "branches": {},
-      "commits": {}
+      "branches": {
+        "main": "default 브랜치. 모든 기능 개발이 squash merge 로 들어옴."
+      },
+      "commits": {
+        "54d13e1": "branch_monitor v0.1.0 — 멀티 저장소 브랜치 뷰어 초기 골격",
+        "0989db2": "저장소 추가 UI — 랜딩 페이지에 + 버튼 / 모달 / GitHub Contents API PUT 으로 repos.json 자동 commit",
+        "45d0efc": "모니터링 대상 저장소 추가 — doroper98/brance_monitor (오타 항목)",
+        "b0eda6b": "모니터링 대상 저장소 추가 — doroper98/branch_monitor (자기 자신 등록)",
+        "5b75852": "모니터링 대상 저장소 제거 — doroper98/brance_monitor (오타 정리)",
+        "24ad9d8": "저장소 삭제 버튼 추가 — 카드 hover 시 × 버튼 노출 + 확인 모달 + Contents API 로 repos.json 항목 제거",
+        "83a7cac": "커밋 subject 앞에 [yy/mm/dd hh:mm:ss] timestamp prefix 추가 + gitgraph 수직 간격 56 → 28 로 축소",
+        "6984fb4": "브랜치별 커밋 fetch 를 동시 4 개로 throttle (secondary rate limit 회피) + 401/403/404 에러 메시지를 rate limit / SSO / 권한 으로 세분화"
+      }
     }
   ]
 }
