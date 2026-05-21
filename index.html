@@ -43,6 +43,18 @@
       font-weight: 600;
       color: var(--accent);
     }
+    header h1 .version-info {
+      font-size: 12px;
+      font-weight: 400;
+      color: var(--muted);
+      margin-left: 8px;
+      letter-spacing: 0;
+    }
+    header h1 .version-info a {
+      color: var(--muted);
+      text-decoration: none;
+    }
+    header h1 .version-info a:hover { color: var(--accent); }
     header p {
       margin: 6px 0 0 0;
       color: var(--muted);
@@ -310,7 +322,7 @@
 <body>
   <header>
     <div class="title-block">
-      <h1>branch_monitor</h1>
+      <h1>branch_monitor<span id="version-info" class="version-info"></span></h1>
       <p>여러 GitHub 저장소의 브랜치 / 커밋 / PR 을 한 곳에서 모니터링. 카드 클릭 시 그래프 뷰로 진입.</p>
     </div>
     <button class="add-btn" onclick="openAddModal()">+ 저장소 추가</button>
@@ -400,6 +412,8 @@
     // ────────── 상수 ──────────
     const BM_OWNER = 'doroper98';
     const BM_REPO = 'branch_monitor';
+    const BM_DEFAULT_BRANCH = 'main';
+    const READ_TOKEN_KEY = 'branch_monitor.token.v1';
     const WRITE_TOKEN_KEY = 'branch_monitor.write_token.v1';
     const REPOS_PATH = 'repos.json';
 
@@ -676,7 +690,61 @@
       if (e.key === 'Escape') { closeAddModal(); closeDeleteModal(); }
     });
 
+    // ────────── 헤더에 본 사이트 버전 / 브랜치 / 최신 커밋 일자 ──────────
+    // branch_monitor 저장소 자체의 VERSION 파일 + main tip 커밋 일자를 가져와
+    // 제목 옆에 표시. 익명 호출 60 req/h 제한을 피하려고 read PAT 가 있으면
+    // 사용. 실패해도 페이지 본 기능에는 영향 없으므로 silent.
+    function fmtCommitDate(d) {
+      const yy = String(d.getFullYear()).slice(-2);
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      return `${yy}/${mm}/${dd} ${hh}:${mi}`;
+    }
+
+    async function loadHeaderVersion() {
+      const el = document.getElementById('version-info');
+      if (!el) return;
+      const headers = { Accept: 'application/vnd.github+json' };
+      const token = localStorage.getItem(READ_TOKEN_KEY) || localStorage.getItem(WRITE_TOKEN_KEY) || '';
+      if (token) headers.Authorization = `Bearer ${token}`;
+
+      try {
+        const [verRes, cmRes] = await Promise.all([
+          fetch(`https://api.github.com/repos/${BM_OWNER}/${BM_REPO}/contents/VERSION?ref=${BM_DEFAULT_BRANCH}`, { headers }),
+          fetch(`https://api.github.com/repos/${BM_OWNER}/${BM_REPO}/commits/${BM_DEFAULT_BRANCH}`, { headers }),
+        ]);
+
+        let versionTxt = '';
+        if (verRes.ok) {
+          const data = await verRes.json();
+          versionTxt = 'v' + base64ToUtf8(data.content).trim();
+        }
+
+        let dateTxt = '';
+        let commitUrl = '';
+        if (cmRes.ok) {
+          const c = await cmRes.json();
+          dateTxt = fmtCommitDate(new Date(c.commit.author.date));
+          commitUrl = c.html_url;
+        }
+
+        const parts = [];
+        if (versionTxt) parts.push(versionTxt);
+        parts.push(BM_DEFAULT_BRANCH);
+        if (dateTxt) parts.push(dateTxt);
+        const inner = parts.join(' · ');
+        el.innerHTML = commitUrl
+          ? `(<a href="${commitUrl}" target="_blank" rel="noopener">${escapeHtml(inner)}</a>)`
+          : `(${escapeHtml(inner)})`;
+      } catch (e) {
+        // silent — fall back to no badge
+      }
+    }
+
     loadRepos();
+    loadHeaderVersion();
   </script>
 </body>
 </html>
