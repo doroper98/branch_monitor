@@ -330,7 +330,7 @@
       <div id="branch-desc" class="loading">왼쪽에서 브랜치를 선택하세요.</div>
     </aside>
     <footer id="footer">
-      데이터: GitHub REST API · 그래프: @gitgraph/js · 인증: 본인 PAT (localStorage, 저장소별 분리)
+      데이터: GitHub REST API · 그래프: @gitgraph/js · 인증: 본인 PAT (localStorage, 저장소별 분리) · <span style="color: #a371f7">┄┄</span> 점선 = squash/rebase merge 보조 연결선
     </footer>
   </main>
 
@@ -554,7 +554,14 @@
         const key = p.head && p.head.ref;
         if (!key) continue;
         const state = p.merged_at ? "merged" : p.state;
-        if (!map[key]) map[key] = { state, number: p.number, title: p.title, url: p.html_url };
+        if (!map[key]) map[key] = {
+          state,
+          number: p.number,
+          title: p.title,
+          url: p.html_url,
+          merge_commit_sha: p.merge_commit_sha || null,
+          head_sha: (p.head && p.head.sha) || null,
+        };
       }
       return map;
     }
@@ -601,10 +608,120 @@
         if (commits.length) tipByBranch[br.name] = commits[0].sha;
       }
 
-      return { sorted, tipBranches, containingBranches, tipByBranch };
+      return { sorted, tipBranches, containingBranches, tipByBranch, all };
     }
 
-    function renderGraph(sorted, tipBranches) {
+    // Detect PRs that landed without a real parent link on the target branch
+    // (squash / rebase). For each, we want to draw a dotted auxiliary edge from
+    // the source branch tip-at-merge-time to the resulting commit on target.
+    function computeSquashMerges(all, prDataByBranch) {
+      const result = [];
+      for (const branchName in prDataByBranch) {
+        const pr = prDataByBranch[branchName];
+        if (pr.state !== "merged") continue;
+        if (!pr.merge_commit_sha || !pr.head_sha) continue;
+
+        const mergeCommit = all.get(pr.merge_commit_sha);
+        if (!mergeCommit) continue;
+
+        const parentShas = (mergeCommit.parents || []).map(p => p.sha);
+        // Real merge commit already links to the source tip — gitgraph handles it.
+        if (parentShas.includes(pr.head_sha)) continue;
+
+        // Source tip wasn't loaded (branch deleted / outside the 30-commit window).
+        if (!all.has(pr.head_sha)) continue;
+
+        result.push({
+          mergeSha: pr.merge_commit_sha,
+          headSha: pr.head_sha,
+          prNumber: pr.number,
+          branchName,
+        });
+      }
+      return result;
+    }
+
+    // Locate each rendered commit's center inside the gitgraph SVG by matching
+    // the abbreviated hash text. @gitgraph/js does not expose a public hook for
+    // per-commit positions, so we scrape the DOM after import().
+    function findCommitPositions(commits) {
+      const svg = document.querySelector("#graph svg");
+      if (!svg) return {};
+
+      const abbrevToHash = {};
+      for (const c of commits) abbrevToHash[c.hashAbbrev] = c.hash;
+
+      const positions = {};
+      const groups = svg.querySelectorAll("g");
+
+      for (const g of groups) {
+        const transform = g.getAttribute("transform") || "";
+        const m = transform.match(/translate\(([\-\d.]+)[,\s]+([\-\d.]+)\)/);
+        if (!m) continue;
+
+        const circle = g.querySelector(":scope > circle");
+        if (!circle) continue;
+
+        let foundHash = null;
+        const texts = g.querySelectorAll("text");
+        for (const t of texts) {
+          const hm = (t.textContent || "").match(/\b([0-9a-f]{7})\b/);
+          if (hm && abbrevToHash[hm[1]]) {
+            foundHash = abbrevToHash[hm[1]];
+            break;
+          }
+        }
+        if (!foundHash) continue;
+
+        const cx = parseFloat(circle.getAttribute("cx") || 0);
+        const cy = parseFloat(circle.getAttribute("cy") || 0);
+        positions[foundHash] = {
+          x: parseFloat(m[1]) + cx,
+          y: parseFloat(m[2]) + cy,
+        };
+      }
+      return positions;
+    }
+
+    function drawSquashMergeOverlay(commits, squashMerges) {
+      if (!squashMerges.length) return;
+      const svg = document.querySelector("#graph svg");
+      if (!svg) return;
+
+      const positions = findCommitPositions(commits);
+
+      const SVG_NS = "http://www.w3.org/2000/svg";
+      const layer = document.createElementNS(SVG_NS, "g");
+      layer.setAttribute("class", "squash-merge-overlay");
+
+      for (const { mergeSha, headSha, prNumber } of squashMerges) {
+        const a = positions[mergeSha];
+        const b = positions[headSha];
+        if (!a || !b) continue;
+
+        const midY = (a.y + b.y) / 2;
+        const path = document.createElementNS(SVG_NS, "path");
+        // Cubic bezier with horizontal-tangent control points → S-curve that
+        // enters/exits each dot vertically, like GitHub's own branch lines.
+        path.setAttribute("d", `M${b.x},${b.y} C${b.x},${midY} ${a.x},${midY} ${a.x},${a.y}`);
+        path.setAttribute("stroke", "#a371f7");
+        path.setAttribute("stroke-width", "1.5");
+        path.setAttribute("stroke-dasharray", "4,3");
+        path.setAttribute("fill", "none");
+        path.setAttribute("opacity", "0.75");
+        path.setAttribute("pointer-events", "stroke");
+
+        const title = document.createElementNS(SVG_NS, "title");
+        title.textContent = `squash/rebase merge · PR #${prNumber}`;
+        path.appendChild(title);
+
+        layer.appendChild(path);
+      }
+
+      svg.appendChild(layer);
+    }
+
+    function renderGraph(sorted, tipBranches, squashMerges) {
       const container = document.getElementById("graph");
       container.innerHTML = "";
 
@@ -694,6 +811,11 @@
       });
 
       gitgraph.import(commits);
+
+      if (squashMerges && squashMerges.length) {
+        // Defer one frame so the SVG is fully laid out before we measure.
+        requestAnimationFrame(() => drawSquashMergeOverlay(commits, squashMerges));
+      }
     }
 
     function renderSide() {
@@ -756,10 +878,12 @@
         const [branches, pulls] = await Promise.all([loadBranches(), loadPulls()]);
         prDataByBranch = pulls;
 
-        const { sorted, tipBranches, tipByBranch } = await buildCommitGraph(branches);
+        const { sorted, tipBranches, tipByBranch, all } = await buildCommitGraph(branches);
         branchTipsByBranch = tipByBranch;
 
-        renderGraph(sorted, tipBranches);
+        const squashMerges = computeSquashMerges(all, prDataByBranch);
+
+        renderGraph(sorted, tipBranches, squashMerges);
 
         const now = new Date().toLocaleString("ko-KR");
         meta.textContent = `${branches.length} branches · ${sorted.length} commits · ${Object.keys(pulls).length} PRs · refreshed ${now}`;
