@@ -274,6 +274,37 @@
       border: 1px solid var(--line);
     }
     .modal button.secondary:hover { color: var(--accent); border-color: var(--accent); }
+
+    @media (max-width: 600px) {
+      header {
+        padding: 16px 16px;
+        gap: 12px;
+      }
+      header h1 { font-size: 18px; }
+      header p { font-size: 11px; }
+      header button.add-btn {
+        padding: 10px 14px;
+        min-height: 40px;
+      }
+      main { padding: 16px; }
+      /* repo-grid 의 min 셀폭이 폰 화면보다 크면 카드가 잘리므로 1열 강제 */
+      .repo-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+      /* 폰에는 hover 가 없으니 삭제 버튼 항상 노출 */
+      .repo-card .delete-btn {
+        opacity: 1;
+        width: 32px;
+        height: 32px;
+        font-size: 16px;
+        top: 6px;
+        right: 6px;
+      }
+      .repo-card { padding: 14px 16px; padding-right: 44px; }
+      footer { padding: 16px; max-width: none; margin: 16px 0 0 0; }
+      .modal { padding: 8px; }
+      .modal .box { padding: 16px; }
+      .modal .actions { flex-wrap: wrap; }
+      .modal button { padding: 10px 16px; min-height: 40px; }
+    }
   </style>
 </head>
 <body>
@@ -292,7 +323,7 @@
   </main>
   <footer>
     저장소 추가: 우상단 <b>+ 저장소 추가</b> 버튼 (또는 직접 <code>repos.json</code> 편집).<br>
-    각 저장소의 PAT 는 브라우저 localStorage 에 분리 저장 (key: <code>branch_monitor.token.&lt;owner&gt;/&lt;repo&gt;.v1</code>), 외부 전송 없음.<br>
+    각 저장소 조회용 read PAT 는 브라우저 localStorage 에 디바이스 단위 공용 저장 (key: <code>branch_monitor.token.v1</code>), 외부 전송 없음. 새 디바이스에서는 1 회 재입력 필요.<br>
     저장소 추가용 write PAT 도 별도 localStorage 저장 (key: <code>branch_monitor.write_token.v1</code>).
   </footer>
 
