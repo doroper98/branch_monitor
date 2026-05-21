@@ -641,9 +641,12 @@
       return result;
     }
 
-    // Locate each rendered commit's center inside the gitgraph SVG by matching
-    // the abbreviated hash text. @gitgraph/js does not expose a public hook for
-    // per-commit positions, so we scrape the DOM after import().
+    // Locate each rendered commit's center inside the gitgraph SVG. The
+    // library renders each commit's dot (<circle>) and message (<text>) in
+    // *separate* sibling <g> groups, so we cannot just walk a single group
+    // and read both. Instead we collect dot positions and hash-bearing text
+    // positions independently via getCTM(), then pair them by Y coordinate —
+    // every commit occupies a distinct row in vertical layout.
     function findCommitPositions(commits) {
       const svg = document.querySelector("#graph svg");
       if (!svg) return {};
@@ -651,34 +654,41 @@
       const abbrevToHash = {};
       for (const c of commits) abbrevToHash[c.hashAbbrev] = c.hash;
 
-      const positions = {};
-      const groups = svg.querySelectorAll("g");
+      function ctmPoint(el, x, y) {
+        const ctm = el.getCTM();
+        if (!ctm) return null;
+        return {
+          x: ctm.a * x + ctm.c * y + ctm.e,
+          y: ctm.b * x + ctm.d * y + ctm.f,
+        };
+      }
 
-      for (const g of groups) {
-        const transform = g.getAttribute("transform") || "";
-        const m = transform.match(/translate\(([\-\d.]+)[,\s]+([\-\d.]+)\)/);
-        if (!m) continue;
-
-        const circle = g.querySelector(":scope > circle");
-        if (!circle) continue;
-
-        let foundHash = null;
-        const texts = g.querySelectorAll("text");
-        for (const t of texts) {
-          const hm = (t.textContent || "").match(/\b([0-9a-f]{7})\b/);
-          if (hm && abbrevToHash[hm[1]]) {
-            foundHash = abbrevToHash[hm[1]];
-            break;
-          }
-        }
-        if (!foundHash) continue;
-
+      const dots = [];
+      for (const circle of svg.querySelectorAll("circle")) {
         const cx = parseFloat(circle.getAttribute("cx") || 0);
         const cy = parseFloat(circle.getAttribute("cy") || 0);
-        positions[foundHash] = {
-          x: parseFloat(m[1]) + cx,
-          y: parseFloat(m[2]) + cy,
-        };
+        const pos = ctmPoint(circle, cx, cy);
+        if (pos) dots.push(pos);
+      }
+
+      const labels = [];
+      for (const t of svg.querySelectorAll("text")) {
+        const hm = (t.textContent || "").match(/\b([0-9a-f]{7})\b/);
+        if (!hm || !abbrevToHash[hm[1]]) continue;
+        const x = parseFloat(t.getAttribute("x") || 0);
+        const y = parseFloat(t.getAttribute("y") || 0);
+        const pos = ctmPoint(t, x, y);
+        if (pos) labels.push({ y: pos.y, hash: abbrevToHash[hm[1]] });
+      }
+
+      const positions = {};
+      for (const dot of dots) {
+        let best = null, bestD = Infinity;
+        for (const lbl of labels) {
+          const d = Math.abs(lbl.y - dot.y);
+          if (d < bestD) { bestD = d; best = lbl; }
+        }
+        if (best && bestD < 20) positions[best.hash] = dot;
       }
       return positions;
     }
