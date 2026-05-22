@@ -706,14 +706,25 @@
     async function loadHeaderVersion() {
       const el = document.getElementById('version-info');
       if (!el) return;
-      const headers = { Accept: 'application/vnd.github+json' };
-      const token = localStorage.getItem(READ_TOKEN_KEY) || localStorage.getItem(WRITE_TOKEN_KEY) || '';
-      if (token) headers.Authorization = `Bearer ${token}`;
+
+      // branch_monitor 는 public 이라 anonymous 호출이 통하지만 60 req/h 한도가 있음.
+      // 익명으로 먼저 시도하고, 403 / 429 일 때만 PAT 로 한 번 더 시도.
+      // (PAT 를 디폴트로 보내면 fine-grained token 이 이 저장소를 포함하지 않은
+      // 경우 public 인데도 404 가 나기 때문에, 우선 익명이 옳음.)
+      async function ghFetch(url) {
+        const accept = { Accept: 'application/vnd.github+json' };
+        const anon = await fetch(url, { headers: accept });
+        if (anon.ok) return anon;
+        if (anon.status !== 403 && anon.status !== 429) return anon;
+        const token = localStorage.getItem(READ_TOKEN_KEY) || localStorage.getItem(WRITE_TOKEN_KEY) || '';
+        if (!token) return anon;
+        return await fetch(url, { headers: { ...accept, Authorization: `Bearer ${token}` } });
+      }
 
       try {
         const [verRes, cmRes] = await Promise.all([
-          fetch(`https://api.github.com/repos/${BM_OWNER}/${BM_REPO}/contents/VERSION?ref=${BM_DEFAULT_BRANCH}`, { headers }),
-          fetch(`https://api.github.com/repos/${BM_OWNER}/${BM_REPO}/commits/${BM_DEFAULT_BRANCH}`, { headers }),
+          ghFetch(`https://api.github.com/repos/${BM_OWNER}/${BM_REPO}/contents/VERSION?ref=${BM_DEFAULT_BRANCH}`),
+          ghFetch(`https://api.github.com/repos/${BM_OWNER}/${BM_REPO}/commits/${BM_DEFAULT_BRANCH}`),
         ]);
 
         let versionTxt = '';
