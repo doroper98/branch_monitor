@@ -60,6 +60,12 @@
       color: var(--muted);
       font-size: 12px;
     }
+    header .header-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
     header button.add-btn {
       background: var(--accent);
       color: #0d1117;
@@ -72,6 +78,18 @@
       white-space: nowrap;
     }
     header button.add-btn:hover { opacity: 0.9; }
+    header button.token-btn {
+      background: transparent;
+      color: var(--muted);
+      border: 1px dashed var(--line);
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font: inherit;
+      white-space: nowrap;
+    }
+    header button.token-btn:hover { color: var(--accent); border-color: var(--accent); border-style: solid; }
+    header button.token-btn.set { color: var(--good); border-color: var(--good); border-style: solid; }
     main {
       max-width: 960px;
       margin: 0 auto;
@@ -294,7 +312,8 @@
       }
       header h1 { font-size: 18px; }
       header p { font-size: 11px; }
-      header button.add-btn {
+      header button.add-btn,
+      header button.token-btn {
         padding: 10px 14px;
         min-height: 40px;
       }
@@ -325,7 +344,10 @@
       <h1>branch_monitor<span id="version-info" class="version-info"></span></h1>
       <p>여러 GitHub 저장소의 브랜치 / 커밋 / PR 을 한 곳에서 모니터링. 카드 클릭 시 그래프 뷰로 진입.</p>
     </div>
-    <button class="add-btn" onclick="openAddModal()">+ 저장소 추가</button>
+    <div class="header-actions">
+      <button class="token-btn" id="token-btn" onclick="openTokenModal()">token</button>
+      <button class="add-btn" onclick="openAddModal()">+ 저장소 추가</button>
+    </div>
   </header>
   <main>
     <h2>등록된 저장소</h2>
@@ -335,9 +357,29 @@
   </main>
   <footer>
     저장소 추가: 우상단 <b>+ 저장소 추가</b> 버튼 (또는 직접 <code>repos.json</code> 편집).<br>
-    각 저장소 조회용 read PAT 는 브라우저 localStorage 에 디바이스 단위 공용 저장 (key: <code>branch_monitor.token.v1</code>), 외부 전송 없음. 새 디바이스에서는 1 회 재입력 필요.<br>
-    저장소 추가용 write PAT 도 별도 localStorage 저장 (key: <code>branch_monitor.write_token.v1</code>).
+    PAT 한 개로 조회 + 목록 편집 둘 다 처리 — 우상단 <b>[token]</b> 버튼에서 등록. localStorage (key: <code>branch_monitor.token.v1</code>) 에만 저장, 외부 전송 없음. 새 디바이스에서는 1 회 재입력 필요.
   </footer>
+
+  <!-- ────────── 토큰 모달 ────────── -->
+  <div class="modal" id="token-modal">
+    <div class="box">
+      <h3>GitHub Personal Access Token</h3>
+      <p class="modal-desc">
+        본인 GitHub 계정으로 발급한 PAT 한 개로 <b>조회 + 목록 편집</b> 모두 처리됩니다. localStorage 에만 저장되고 외부로 전송되지 않습니다.<br><br>
+        <b>발급</b>: <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">GitHub Settings → Fine-grained tokens → Generate new token</a><br>
+        <b>Resource owner</b>: 본인 계정<br>
+        <b>Repository access</b>: <code>branch_monitor</code> + 모니터링하고 싶은 저장소 전부 (private 포함)<br>
+        <b>Permissions</b>: <code>Contents: Read and write</code>, <code>Metadata: Read-only</code>, <code>Pull requests: Read-only</code>
+      </p>
+      <input id="token-input" type="password" placeholder="github_pat_... 또는 ghp_..." autocomplete="off">
+      <div class="status" id="token-status"></div>
+      <div class="actions">
+        <button class="secondary" onclick="clearTokenAction()">삭제</button>
+        <button class="secondary" onclick="closeTokenModal()">취소</button>
+        <button onclick="saveTokenAction()">저장</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ────────── 저장소 삭제 모달 ────────── -->
   <div class="modal" id="delete-modal">
@@ -346,16 +388,8 @@
       <p class="modal-desc">
         <code>repos.json</code> 에서 <b id="delete-target">—</b> 항목을 제거하는 commit 을 만듭니다.
         실제 GitHub 저장소 자체는 삭제되지 않으며, 카드 목록에서만 사라집니다.<br>
-        브라우저 localStorage 에 저장된 그 저장소의 read PAT 는 그대로 유지됩니다.
+        토큰은 우상단 <b>[token]</b> 버튼에서 한 번 설정한 PAT 를 재사용합니다.
       </p>
-
-      <div class="write-section">
-        <div class="write-label">🔑 branch_monitor write PAT</div>
-        <input id="delete-write-token-input" type="password" placeholder="github_pat_... (Contents: Read & Write)" autocomplete="off">
-        <p class="hint">
-          추가 시 사용한 것과 동일한 PAT. 이미 등록되어 있으면 자동 채워집니다.
-        </p>
-      </div>
 
       <div class="status" id="delete-status"></div>
 
@@ -371,19 +405,9 @@
     <div class="box">
       <h3>+ 저장소 추가</h3>
       <p class="modal-desc">
-        새 저장소를 <code>repos.json</code> 에 commit 합니다. 본 commit 은 branch_monitor 저장소 자체에 들어가며,
-        Vercel 이 약 30~60 초 후 자동 재배포하면 카드가 노출됩니다.
+        새 저장소를 <code>repos.json</code> 에 commit 합니다. Vercel 이 약 30~60 초 후 자동 재배포하면 카드가 노출됩니다.<br>
+        토큰은 우상단 <b>[token]</b> 버튼에서 한 번 설정한 PAT 를 재사용합니다.
       </p>
-
-      <div class="write-section">
-        <div class="write-label">🔑 branch_monitor write PAT</div>
-        <input id="write-token-input" type="password" placeholder="github_pat_... (Contents: Read & Write)" autocomplete="off">
-        <p class="hint">
-          branch_monitor 저장소 자체에 commit 하기 위한 PAT. 한 번만 등록하면 이 브라우저에 기억됩니다.<br>
-          <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">PAT 발급 →</a>
-          (Resource = branch_monitor, Permissions = <b>Contents: Read and write</b> + Metadata: Read-only)
-        </p>
-      </div>
 
       <label>Owner (필수)</label>
       <input id="add-owner" type="text" placeholder="예: doroper98" autocomplete="off">
@@ -413,9 +437,26 @@
     const BM_OWNER = 'doroper98';
     const BM_REPO = 'branch_monitor';
     const BM_DEFAULT_BRANCH = 'main';
-    const READ_TOKEN_KEY = 'branch_monitor.token.v1';
-    const WRITE_TOKEN_KEY = 'branch_monitor.write_token.v1';
+    // PAT 키는 하나로 통합. 옛 write_token.v1 키는 첫 접근 시 1 회 마이그레이션 후 제거.
+    const TOKEN_KEY = 'branch_monitor.token.v1';
+    const LEGACY_WRITE_TOKEN_KEY = 'branch_monitor.write_token.v1';
     const REPOS_PATH = 'repos.json';
+
+    // 1회성 마이그레이션: 옛 write PAT 가 따로 저장돼 있고 통합 키가 비어 있으면
+    // 그쪽으로 옮긴 다음 옛 키 제거. 둘 다 있으면 통합 키를 우선하고 옛 키만 제거.
+    function migrateLegacyWriteToken() {
+      const legacy = localStorage.getItem(LEGACY_WRITE_TOKEN_KEY);
+      if (!legacy) return;
+      if (!localStorage.getItem(TOKEN_KEY)) {
+        localStorage.setItem(TOKEN_KEY, legacy);
+      }
+      localStorage.removeItem(LEGACY_WRITE_TOKEN_KEY);
+    }
+    migrateLegacyWriteToken();
+
+    function getToken() {
+      return localStorage.getItem(TOKEN_KEY) || '';
+    }
 
     // ────────── 일반 유틸 ──────────
     function escapeHtml(s) {
@@ -473,11 +514,46 @@
       }
     }
 
+    // ────────── 토큰 모달 ──────────
+    function setTokenBadge() {
+      const btn = document.getElementById('token-btn');
+      if (!btn) return;
+      if (getToken()) { btn.classList.add('set'); btn.textContent = 'token ✓'; }
+      else            { btn.classList.remove('set'); btn.textContent = 'token'; }
+    }
+    function openTokenModal() {
+      document.getElementById('token-modal').classList.add('open');
+      document.getElementById('token-input').value = getToken();
+      setTokenStatus('', '');
+      setTimeout(() => document.getElementById('token-input').focus(), 50);
+    }
+    function closeTokenModal() {
+      document.getElementById('token-modal').classList.remove('open');
+    }
+    function setTokenStatus(msg, type) {
+      const el = document.getElementById('token-status');
+      if (!msg) { el.className = 'status'; el.textContent = ''; return; }
+      el.className = 'status show ' + (type || 'info');
+      el.textContent = msg;
+    }
+    function saveTokenAction() {
+      const v = document.getElementById('token-input').value.trim();
+      if (v) localStorage.setItem(TOKEN_KEY, v);
+      else localStorage.removeItem(TOKEN_KEY);
+      setTokenBadge();
+      closeTokenModal();
+    }
+    function clearTokenAction() {
+      localStorage.removeItem(TOKEN_KEY);
+      document.getElementById('token-input').value = '';
+      setTokenBadge();
+      setTokenStatus('삭제됨.', 'info');
+    }
+
     // ────────── 모달 제어 ──────────
     function openAddModal() {
       const m = document.getElementById('add-modal');
       m.classList.add('open');
-      document.getElementById('write-token-input').value = localStorage.getItem(WRITE_TOKEN_KEY) || '';
       document.getElementById('add-owner').value = 'doroper98';
       document.getElementById('add-repo').value = '';
       document.getElementById('add-desc').value = '';
@@ -498,22 +574,19 @@
 
     // ────────── 저장소 추가 (GitHub Contents API PUT) ──────────
     async function submitAddRepo() {
-      const writeToken = document.getElementById('write-token-input').value.trim();
+      const token = getToken();
       const owner = document.getElementById('add-owner').value.trim();
       const repo = document.getElementById('add-repo').value.trim();
       const description = document.getElementById('add-desc').value.trim();
       const isPrivate = document.getElementById('add-private').checked;
 
       // 입력 검증
-      if (!writeToken) { setStatus('branch_monitor write PAT 이 필요합니다.', 'error'); return; }
+      if (!token) { setStatus('우상단 [token] 버튼에서 PAT 를 먼저 등록해주세요.', 'error'); return; }
       if (!owner || !repo) { setStatus('owner 와 repo 는 필수입니다.', 'error'); return; }
       const slugRe = /^[a-zA-Z0-9._-]+$/;
       if (!slugRe.test(owner) || !slugRe.test(repo)) {
         setStatus('owner / repo 는 영문/숫자/._- 만 허용됩니다.', 'error'); return;
       }
-
-      // 쓰기 토큰 저장
-      localStorage.setItem(WRITE_TOKEN_KEY, writeToken);
 
       const submitBtn = document.getElementById('add-submit');
       submitBtn.disabled = true;
@@ -525,12 +598,12 @@
         const getRes = await fetch(url, {
           headers: {
             'Accept': 'application/vnd.github+json',
-            'Authorization': `Bearer ${writeToken}`
+            'Authorization': `Bearer ${token}`
           }
         });
         if (!getRes.ok) {
-          if (getRes.status === 401 || getRes.status === 403) {
-            throw new Error(`인증 실패 (${getRes.status}). PAT 가 Contents Read+Write 권한인지, branch_monitor 저장소를 선택했는지 확인하세요.`);
+          if (getRes.status === 401 || getRes.status === 403 || getRes.status === 404) {
+            throw new Error(`인증 실패 (${getRes.status}). PAT 가 branch_monitor 저장소 access + Contents: Read and write 권한을 갖는지 확인해주세요.`);
           }
           throw new Error(`repos.json GET 실패: ${getRes.status} ${getRes.statusText}`);
         }
@@ -567,7 +640,7 @@
           method: 'PUT',
           headers: {
             'Accept': 'application/vnd.github+json',
-            'Authorization': `Bearer ${writeToken}`,
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -600,7 +673,6 @@
       const m = document.getElementById('delete-modal');
       m.classList.add('open');
       document.getElementById('delete-target').textContent = `${owner}/${repo}`;
-      document.getElementById('delete-write-token-input').value = localStorage.getItem(WRITE_TOKEN_KEY) || '';
       setDeleteStatus('', '');
       document.getElementById('delete-submit').disabled = false;
     }
@@ -618,10 +690,8 @@
     async function submitDeleteRepo() {
       if (!deleteTarget) return;
       const { owner, repo } = deleteTarget;
-      const writeToken = document.getElementById('delete-write-token-input').value.trim();
-      if (!writeToken) { setDeleteStatus('branch_monitor write PAT 이 필요합니다.', 'error'); return; }
-
-      localStorage.setItem(WRITE_TOKEN_KEY, writeToken);
+      const token = getToken();
+      if (!token) { setDeleteStatus('우상단 [token] 버튼에서 PAT 를 먼저 등록해주세요.', 'error'); return; }
 
       const submitBtn = document.getElementById('delete-submit');
       submitBtn.disabled = true;
@@ -632,12 +702,12 @@
         const getRes = await fetch(url, {
           headers: {
             'Accept': 'application/vnd.github+json',
-            'Authorization': `Bearer ${writeToken}`
+            'Authorization': `Bearer ${token}`
           }
         });
         if (!getRes.ok) {
-          if (getRes.status === 401 || getRes.status === 403) {
-            throw new Error(`인증 실패 (${getRes.status}). PAT 가 Contents Read+Write 권한인지, branch_monitor 저장소를 선택했는지 확인하세요.`);
+          if (getRes.status === 401 || getRes.status === 403 || getRes.status === 404) {
+            throw new Error(`인증 실패 (${getRes.status}). PAT 가 branch_monitor 저장소 access + Contents: Read and write 권한을 갖는지 확인해주세요.`);
           }
           throw new Error(`repos.json GET 실패: ${getRes.status} ${getRes.statusText}`);
         }
@@ -661,7 +731,7 @@
           method: 'PUT',
           headers: {
             'Accept': 'application/vnd.github+json',
-            'Authorization': `Bearer ${writeToken}`,
+            'Authorization': `Bearer ${token}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
@@ -687,7 +757,7 @@
 
     // ESC 키로 모달 닫기
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { closeAddModal(); closeDeleteModal(); }
+      if (e.key === 'Escape') { closeAddModal(); closeDeleteModal(); closeTokenModal(); }
     });
 
     // ────────── 헤더에 본 사이트 버전 / 브랜치 / 최신 커밋 일자 ──────────
@@ -716,7 +786,7 @@
         const anon = await fetch(url, { headers: accept });
         if (anon.ok) return anon;
         if (anon.status !== 403 && anon.status !== 429) return anon;
-        const token = localStorage.getItem(READ_TOKEN_KEY) || localStorage.getItem(WRITE_TOKEN_KEY) || '';
+        const token = getToken();
         if (!token) return anon;
         return await fetch(url, { headers: { ...accept, Authorization: `Bearer ${token}` } });
       }
@@ -754,6 +824,7 @@
       }
     }
 
+    setTokenBadge();
     loadRepos();
     loadHeaderVersion();
   </script>
